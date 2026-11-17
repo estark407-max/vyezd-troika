@@ -170,7 +170,7 @@ function startApp() {
       const isStart = i === 0, isEnd = i === points.length - 1;
       const m = new ymaps.Placemark([p.lat, p.lng],
         { iconContent: isStart ? 'А' : isEnd ? 'Б' : String(i), hintContent: p.label },
-        { preset: isStart ? 'islands#darkGreenStretchyIcon' : isEnd ? 'islands#darkOrangeStretchyIcon' : 'islands#blackStretchyIcon', draggable: true, zIndex: 1000 });
+        { preset: isStart ? 'islands#darkBlueStretchyIcon' : isEnd ? 'islands#darkGreenStretchyIcon' : 'islands#blackStretchyIcon', draggable: true, zIndex: 1000 });
       m.events.add('dragend', async () => {
         const [lat, lng] = m.geometry.getCoordinates();
         points[i] = { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lng, lat };
@@ -218,7 +218,7 @@ function startApp() {
     if (multiRoute) map.geoObjects.remove(multiRoute);
     const dark = theme() === 'dark';
     const line = new ymaps.Polyline(rt.geometry.coordinates.map(([lng, lat]) => [lat, lng]), {}, {
-      strokeColor: dark ? '#ff7a33' : '#e5590f', strokeWidth: 6, strokeOpacity: 0.9
+      strokeColor: dark ? '#36bd71' : '#1f8a4c', strokeWidth: 6, strokeOpacity: 0.9
     });
     multiRoute = line;
     map.geoObjects.add(line);
@@ -238,7 +238,7 @@ function startApp() {
         boundsAutoApply: true,
         wayPointVisible: false, viaPointVisible: false, pinVisible: false,
         routeActiveStrokeWidth: 6,
-        routeActiveStrokeColor: dark ? '#ff7a33' : '#e5590f',
+        routeActiveStrokeColor: dark ? '#36bd71' : '#1f8a4c',
         routeStrokeColor: '#9b998f'
       });
       multiRoute = mr;
