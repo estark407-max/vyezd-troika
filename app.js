@@ -275,10 +275,25 @@ function startApp() {
     t.perKm = Math.max(0, +$('#tPerKm').value || 0);
     return t;
   }
-  function customValue() {
-    if (!$('#customOn').checked) return null;
-    const v = $('#customPrice').value.trim();
-    return v === '' ? null : Math.max(0, +v || 0);
+  function customValue() { return null; }
+
+  // ---------- отправка адреса мастеру ----------
+  async function sendAddress() {
+    const p = [...points].reverse().find(Boolean);
+    if (!p) { toast('Сначала укажите адрес «Куда»'); return; }
+    const ll = p.lng.toFixed(6) + ',' + p.lat.toFixed(6);
+    const url = 'https://yandex.ru/maps/?pt=' + ll + ',pm2rdm&z=17&l=map&ll=' + ll;
+    const lines = ['Адрес выезда: ' + p.label];
+    const name = $('#clientName').value.trim(), phone = $('#clientPhone').value.trim(), com = $('#comment').value.trim();
+    if (name || phone) lines.push('Клиент: ' + [name, phone].filter(Boolean).join(', '));
+    if (com) lines.push('Комментарий: ' + com);
+    lines.push('Яндекс Карты: ' + url);
+    const text = lines.join('\n');
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Адрес выезда', text }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    copy(text, 'Адрес и ссылка скопированы — вставьте в мессенджер');
   }
   // пересчёт без запроса маршрута
   function recompute() {
@@ -434,11 +449,11 @@ function startApp() {
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   let toastT;
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); }
-  async function copy(text) {
-    try { await navigator.clipboard.writeText(text); toast('Текст заявки скопирован'); }
+  async function copy(text, msg = 'Текст заявки скопирован') {
+    try { await navigator.clipboard.writeText(text); toast(msg); }
     catch {
       const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); toast('Текст заявки скопирован'); } catch { toast('Не удалось скопировать'); }
+      try { document.execCommand('copy'); toast(msg); } catch { toast('Не удалось скопировать'); }
       ta.remove();
     }
   }
@@ -454,6 +469,7 @@ function startApp() {
   $('#btnCalc').onclick = calculate;
   $('#btnSave').onclick = saveOrder;
   $('#btnCopy').onclick = () => lastCalc && copy(orderText(lastCalc));
+  $('#btnSendAddr').onclick = sendAddress;
   $('#btnHistory').onclick = () => { renderHistory(); openModal('#historyModal'); };
   $('#btnExport').onclick = exportCsv;
   $('#btnClearHist').onclick = () => { history = []; store.set('vk_history', history); renderHistory(); };
@@ -462,13 +478,8 @@ function startApp() {
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(m => m.hidden = true); });
   $('#roundTrip').addEventListener('change', () => { if (lastCalc) calculate(); });
-  ['#tSupply', '#tPerKm', '#customPrice'].forEach(s => $(s).addEventListener('input', recompute));
+  ['#tSupply', '#tPerKm'].forEach(s => $(s).addEventListener('input', recompute));
   $('#manualKm').addEventListener('input', () => { if (lastCalc && (lastCalc.manual || manualKm())) calculate(); });
-  $('#customOn').addEventListener('change', () => {
-    const on = $('#customOn').checked; $('#customPrice').disabled = !on;
-    if (on) { if (!$('#customPrice').value && lastCalc) $('#customPrice').value = Math.round(lastCalc.calcTotal); $('#customPrice').focus(); }
-    recompute();
-  });
   $('#tCur').addEventListener('change', () => { settings.currency = $('#tCur').value; applyModeLabels(); if (lastCalc) renderResult(false); });
   $('#btnLocate').onclick = () => {
     if (!navigator.geolocation) { toast('Геолокация недоступна'); return; }
