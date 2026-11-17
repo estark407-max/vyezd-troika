@@ -2,11 +2,11 @@
 (() => {
   'use strict';
 
-  // ---------- хранилище (с запасным вариантом в памяти) ----------
+  // ---------- хранилище (в памяти текущей сессии) ----------
   const mem = {};
   const store = {
-    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return k in mem ? mem[k] : d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { mem[k] = v; } }
+    get(k, d) { return k in mem ? mem[k] : d; },
+    set(k, v) { mem[k] = v; }
   };
 
   const DEFAULT_TARIFFS = {
