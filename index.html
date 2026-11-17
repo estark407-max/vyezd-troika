@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
 <link href="style.css" rel="stylesheet">
 <script>document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';</script>
 </head>
@@ -91,6 +90,7 @@
         <button class="btn ghost" id="btnCopy" type="button">Копировать текст</button>
       </div>
     </div>
+    <p class="legal">Карты, поиск адресов и маршруты — <a href="https://yandex.ru/maps/" target="_blank" rel="noopener">Яндекс Карты</a>. <a href="https://yandex.ru/legal/maps_api/" target="_blank" rel="noopener">Условия использования сервиса</a>.</p>
   </section>
 
   <section class="map-wrap" aria-label="Карта">
@@ -116,7 +116,7 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

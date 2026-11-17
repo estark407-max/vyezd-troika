@@ -1,5 +1,5 @@
 /* Выезд Тройка — калькулятор стоимости доставки и выезда мастера */
-(() => {
+function startApp() {
   'use strict';
 
   // ---------- хранилище (в памяти текущей сессии) ----------
@@ -31,34 +31,12 @@
   const money = (n) => `${fmt(n)} ${settings.currency}`;
 
   // ---------- карта ----------
-  const MAP_STYLES = {
-    light: 'https://tiles.openfreemap.org/styles/liberty',
-    dark: 'https://tiles.openfreemap.org/styles/dark'
-  };
   const theme = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-  let routeData = { type: 'FeatureCollection', features: [] };
-
-  const map = new maplibregl.Map({
-    container: 'map',
-    style: MAP_STYLES[theme()],
-    center: [37.6173, 55.7558],
-    zoom: 9,
-    attributionControl: { compact: true }
-  });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-
-  function addRouteLayers() {
-    if (map.getSource('route')) return;
-    map.addSource('route', { type: 'geojson', data: routeData });
-    map.addLayer({ id: 'route-casing', type: 'line', source: 'route',
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': theme() === 'dark' ? '#000' : '#7a2c03', 'line-width': 8, 'line-opacity': .35 } });
-    map.addLayer({ id: 'route-line', type: 'line', source: 'route',
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': theme() === 'dark' ? '#ff7a33' : '#e5590f', 'line-width': 5 } });
-  }
-  map.on('style.load', addRouteLayers);
-  function setRouteData(d) { routeData = d; const src = map.getSource('route'); if (src) src.setData(d); }
+  const map = new ymaps.Map('map', {
+    center: [55.7558, 37.6173], zoom: 9,
+    controls: ['zoomControl', 'trafficControl']
+  }, { suppressMapOpenBlock: false, yandexMapDisablePoiInteractivity: true });
+  let multiRoute = null;
 
   function applyTheme(t) {
     document.documentElement.dataset.theme = t;
@@ -66,56 +44,57 @@
     const b = $('#btnTheme');
     b.setAttribute('aria-label', dark ? 'Включить светлую тему' : 'Включить тёмную тему');
     b.title = dark ? 'Светлая тема' : 'Тёмная тема';
-    map.setStyle(MAP_STYLES[t], { diff: false });
   }
 
-  map.on('click', async (e) => {
-    const { lng, lat } = e.lngLat;
+  map.events.add('click', async (e) => {
+    const [lat, lng] = e.get('coords');
     const idx = activeIdx;
     setPoint(idx, { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lng, lat });
     const label = await reverseGeocode(lng, lat);
     if (label && points[idx] && points[idx].lng === lng) { points[idx].label = label; renderPoints(); }
-    // перейти к следующему пустому полю
     const next = points.findIndex(p => !p);
     if (next >= 0) { activeIdx = next; renderPoints(); }
   });
 
-  // ---------- геокодирование ----------
-  function photonLabel(p) {
-    const pr = p.properties;
-    const street = [pr.street, pr.housenumber].filter(Boolean).join(', ');
-    const main = pr.name && pr.name !== pr.street ? (street ? `${pr.name}, ${street}` : pr.name) : (street || pr.name || '');
-    const place = [pr.city || pr.town || pr.village, pr.state, pr.country].filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i).join(', ');
-    return { main: main || place, place };
+  // ---------- геокодирование (Яндекс) ----------
+  const GEO_KEY = (window.APP_CONFIG && window.APP_CONFIG.geocoderKey) || '';
+  async function geocodeHttp(params) {
+    const u = 'https://geocode-maps.yandex.ru/v1/?format=json&lang=ru_RU&apikey=' + encodeURIComponent(GEO_KEY) + '&' + params;
+    const r = await fetch(u);
+    if (!r.ok) throw new Error('geocoder ' + r.status);
+    const j = await r.json();
+    return (j.response.GeoObjectCollection.featureMember || []).map(m => {
+      const g = m.GeoObject; const [lng, lat] = g.Point.pos.split(' ').map(Number);
+      return { main: g.name, place: g.description || '', lng, lat };
+    });
   }
 
   async function searchAddress(q) {
-    const c = map.getCenter();
-    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${c.lat}&lon=${c.lng}`;
-    try {
-      const r = await fetch(url);
-      if (!r.ok) throw 0;
-      const j = await r.json();
-      return j.features.map(f => {
-        const l = photonLabel(f);
-        return { main: l.main, place: l.place, lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] };
-      });
-    } catch {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=6&accept-language=ru&q=${encodeURIComponent(q)}`);
-      const j = await r.json();
-      return j.map(x => ({ main: x.display_name.split(',').slice(0, 2).join(','), place: x.display_name, lng: +x.lon, lat: +x.lat }));
+    if (GEO_KEY) {
+      const b = map.getBounds();
+      const ll = ((b[0][1] + b[1][1]) / 2) + ',' + ((b[0][0] + b[1][0]) / 2);
+      const spn = Math.abs(b[1][1] - b[0][1]) + ',' + Math.abs(b[1][0] - b[0][0]);
+      return geocodeHttp('results=6&ll=' + ll + '&spn=' + spn + '&geocode=' + encodeURIComponent(q));
     }
+    const res = await ymaps.geocode(q, { results: 6, boundedBy: map.getBounds() });
+    const out = [];
+    res.geoObjects.each(o => {
+      const [lat, lng] = o.geometry.getCoordinates();
+      out.push({ main: o.properties.get('name'), place: o.properties.get('description') || '', lng, lat });
+    });
+    return out;
   }
 
   async function reverseGeocode(lng, lat) {
     try {
-      const r = await fetch(`https://photon.komoot.io/reverse?lon=${lng}&lat=${lat}&limit=1`);
-      const j = await r.json();
-      if (j.features && j.features[0]) {
-        const l = photonLabel(j.features[0]);
-        return [l.main, (l.place || '').split(',')[0]].filter(Boolean).join(', ');
+      if (GEO_KEY) {
+        const r = await geocodeHttp('results=1&geocode=' + lng + ',' + lat);
+        if (r[0]) return [r[0].main, (r[0].place || '').split(',')[0]].filter(Boolean).join(', ');
+        return null;
       }
+      const res = await ymaps.geocode([lat, lng], { results: 1 });
+      const o = res.geoObjects.get(0);
+      if (o) return [o.properties.get('name'), (o.properties.get('description') || '').split(',')[0]].filter(Boolean).join(', ');
     } catch { /* игнор */ }
     return null;
   }
@@ -150,7 +129,7 @@
   function attachSuggest(row, input, idx) {
     let timer, list, items = [], hl = -1;
     const close = () => { if (list) { list.remove(); list = null; } hl = -1; };
-    const pick = (it) => { close(); setPoint(idx, { label: it.main + (it.place ? ', ' + it.place.split(',')[0] : ''), lng: it.lng, lat: it.lat }); map.flyTo({ center: [it.lng, it.lat], zoom: Math.max(map.getZoom(), 12) }); };
+    const pick = (it) => { close(); setPoint(idx, { label: it.main + (it.place ? ', ' + it.place.split(',')[0] : ''), lng: it.lng, lat: it.lat }); map.setCenter([it.lat, it.lng], Math.max(map.getZoom(), 12), { duration: 400 }); };
     input.addEventListener('input', () => {
       clearTimeout(timer);
       const q = input.value.trim();
@@ -169,7 +148,7 @@
           list.appendChild(b);
         });
         row.appendChild(list);
-      }, 300);
+      }, 500);
     });
     input.addEventListener('keydown', (e) => {
       if (!list) return;
@@ -185,49 +164,56 @@
   }
 
   function renderMarkers() {
-    markers.forEach(m => m.remove()); markers.length = 0;
+    markers.forEach(m => map.geoObjects.remove(m)); markers.length = 0;
     points.forEach((p, i) => {
       if (!p) return;
       const isStart = i === 0, isEnd = i === points.length - 1;
-      const el = document.createElement('div');
-      el.className = 'marker';
-      el.style.background = isStart ? '#2f7d4f' : isEnd ? '#e5590f' : '#1d1f21';
-      el.innerHTML = `<span>${isStart ? 'A' : isEnd ? 'Б' : i}</span>`;
-      const m = new maplibregl.Marker({ element: el, draggable: true, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
-      m.on('dragend', async () => {
-        const { lng, lat } = m.getLngLat();
+      const m = new ymaps.Placemark([p.lat, p.lng],
+        { iconContent: isStart ? 'А' : isEnd ? 'Б' : String(i), hintContent: p.label },
+        { preset: isStart ? 'islands#darkGreenStretchyIcon' : isEnd ? 'islands#darkOrangeStretchyIcon' : 'islands#blackStretchyIcon', draggable: true, zIndex: 1000 });
+      m.events.add('dragend', async () => {
+        const [lat, lng] = m.geometry.getCoordinates();
         points[i] = { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lng, lat };
         renderPoints();
         const label = await reverseGeocode(lng, lat);
         if (label) { points[i].label = label; renderPoints(); }
         if (lastCalc) calculate();
       });
+      map.geoObjects.add(m);
       markers.push(m);
     });
   }
 
   function clearRoute() {
-    setRouteData({ type: 'FeatureCollection', features: [] });
+    if (multiRoute) { map.geoObjects.remove(multiRoute); multiRoute = null; }
     $('#result').hidden = true; lastCalc = null;
   }
 
-  // ---------- маршрут ----------
-  async function fetchRoute(coords) {
-    const path = coords.map(c => `${c.lng.toFixed(6)},${c.lat.toFixed(6)}`).join(';');
-    const servers = [
-      `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`,
-      `https://routing.openstreetmap.de/routed-car/route/v1/driving/${path}?overview=full&geometries=geojson`
-    ];
-    let lastErr;
-    for (const url of servers) {
-      try {
-        const r = await fetch(url);
-        const j = await r.json();
-        if (j.code === 'Ok' && j.routes && j.routes[0]) return j.routes[0];
-        lastErr = new Error(j.code === 'NoRoute' ? 'Между точками не найдено дороги' : 'Сервис маршрутов вернул ошибку');
-      } catch (e) { lastErr = new Error('Нет связи с сервисом маршрутов'); }
-    }
-    throw lastErr;
+  // ---------- маршрут (Яндекс) ----------
+  function fetchRoute(coords) {
+    return new Promise((resolve, reject) => {
+      if (multiRoute) map.geoObjects.remove(multiRoute);
+      const dark = theme() === 'dark';
+      const mr = new ymaps.multiRouter.MultiRoute({
+        referencePoints: coords.map(c => [c.lat, c.lng]),
+        params: { routingMode: 'auto', results: 1 }
+      }, {
+        boundsAutoApply: true,
+        wayPointVisible: false, viaPointVisible: false, pinVisible: false,
+        routeActiveStrokeWidth: 6,
+        routeActiveStrokeColor: dark ? '#ff7a33' : '#e5590f',
+        routeStrokeColor: '#9b998f'
+      });
+      multiRoute = mr;
+      const done = () => {
+        const r = mr.getActiveRoute();
+        if (!r) { reject(new Error('Между точками не найдено дороги')); return; }
+        resolve({ distance: r.properties.get('distance').value, duration: r.properties.get('duration').value });
+      };
+      mr.model.events.once('requestsuccess', done);
+      mr.model.events.once('requestfail', () => reject(new Error('Сервис маршрутов Яндекса вернул ошибку')));
+      map.geoObjects.add(mr);
+    });
   }
 
   // ---------- расчёт ----------
@@ -282,12 +268,6 @@
       const route = await fetchRoute(coords);
       const km = Math.max(1, Math.round(route.distance / 1000)), min = route.duration / 60;
       lastRoute = { km, min };
-      setRouteData({ type: 'Feature', geometry: route.geometry, properties: {} });
-      const b = new maplibregl.LngLatBounds();
-      route.geometry.coordinates.forEach(c => b.extend(c));
-      const wide = window.innerWidth > 900;
-      map.fitBounds(b, { padding: wide ? 70 : 36, maxZoom: 15, duration: 700 });
-
       const res = computeCost(km, readTariff(), customValue());
       lastCalc = { ...res, km, min, round, mode, points: filled.map(p => p.label), date: new Date().toISOString() };
       renderResult();
@@ -426,7 +406,7 @@
     if (!navigator.geolocation) { toast('Геолокация недоступна'); return; }
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { longitude: lng, latitude: lat } = pos.coords;
-      map.flyTo({ center: [lng, lat], zoom: 13 });
+      map.setCenter([lat, lng], 13, { duration: 400 });
       setPoint(0, { label: 'Моё местоположение', lng, lat });
       const l = await reverseGeocode(lng, lat); if (l) { points[0].label = l; renderPoints(); }
     }, () => toast('Не удалось определить местоположение'));
@@ -437,4 +417,20 @@
   applyModeLabels();
   renderPoints();
   renderMarkers();
+}
+
+// ---------- загрузка API Яндекс Карт ----------
+(function loadYandex() {
+  const key = (window.APP_CONFIG && window.APP_CONFIG.yandexKey) || '';
+  const fail = (msg) => {
+    const el = document.getElementById('map');
+    el.innerHTML = '<div class="map-error"><b>Карта не загрузилась</b><span>' + msg + '</span></div>';
+    const st = document.getElementById('status'); if (st) { st.textContent = msg; st.classList.add('err'); }
+  };
+  if (!key) { fail('Не задан API-ключ Яндекс Карт (файл config.js).'); return; }
+  const s = document.createElement('script');
+  s.src = 'https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=' + encodeURIComponent(key);
+  s.onload = () => ymaps.ready(startApp, () => fail('Яндекс Карты не ответили. Проверьте ключ и ограничения по адресу сайта.'));
+  s.onerror = () => fail('Нет связи с Яндекс Картами.');
+  document.head.appendChild(s);
 })();
