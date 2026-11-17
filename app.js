@@ -262,7 +262,7 @@
     btn.disabled = true; status.textContent = 'Строю маршрут…';
     try {
       const route = await fetchRoute(coords);
-      const km = Math.max(1, Math.ceil(route.distance / 1000)), min = route.duration / 60;
+      const km = Math.max(1, Math.round(route.distance / 1000)), min = route.duration / 60;
       lastRoute = { km, min };
       map.getSource('route').setData({ type: 'Feature', geometry: route.geometry, properties: {} });
       const b = new maplibregl.LngLatBounds();
@@ -329,7 +329,7 @@
       const el = document.createElement('div');
       el.className = 'h-item';
       el.innerHTML = `<div><b>№${h.num} · ${MODE_NAMES[h.mode]}</b>
-        <small>${new Date(h.date).toLocaleString('ru-RU')} · ${Math.ceil(h.km)} км${h.client ? ' · ' + escapeHtml(h.client) : ''}</small>
+        <small>${new Date(h.date).toLocaleString('ru-RU')} · ${Math.round(h.km)} км${h.client ? ' · ' + escapeHtml(h.client) : ''}</small>
         <small>${escapeHtml(h.points.join(' → '))}</small></div>
         <span class="h-sum">${fmt(h.total)} ${h.currency || settings.currency}</span>
         <div><button class="btn small ghost" data-copy="${i}" type="button">Копировать</button>
@@ -345,7 +345,7 @@
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const head = ['Номер', 'Дата', 'Тип', 'Маршрут', 'Км', 'Минут в пути', 'Клиент', 'Комментарий', 'Итого', 'Валюта'];
     const rows = history.map(h => [h.num, new Date(h.date).toLocaleString('ru-RU'), MODE_NAMES[h.mode], h.points.join(' → '),
-      Math.ceil(h.km), Math.round(h.min), h.client, h.comment, h.total, h.currency]);
+      Math.round(h.km), Math.round(h.min), h.client, h.comment, h.total, h.currency]);
     const csv = '\ufeff' + [head, ...rows].map(r => r.map(esc).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
