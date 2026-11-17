@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Калькулятор выезда — расчёт стоимости доставки и вызова мастера</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<link href="style.css" rel="stylesheet">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/></svg>
+    </span>
+    <span class="brand-name">Выезд<b>Калк</b></span>
+  </div>
+  <nav class="mode-tabs" role="tablist" aria-label="Тип заявки">
+    <button role="tab" class="tab active" data-mode="delivery" aria-selected="true">Доставка</button>
+    <button role="tab" class="tab" data-mode="master" aria-selected="false">Выезд мастера</button>
+  </nav>
+  <div class="top-actions">
+    <button class="btn ghost" id="btnHistory" type="button">История</button>
+    <button class="btn ghost" id="btnSettings" type="button">Тарифы</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="panel" aria-label="Параметры заявки">
+    <div class="block">
+      <h2 class="block-title">Маршрут</h2>
+      <div class="points" id="points"></div>
+      <div class="row-actions">
+        <button class="btn small ghost" id="btnAddStop" type="button">+ Промежуточная точка</button>
+        <label class="check"><input type="checkbox" id="roundTrip"> Туда и обратно</label>
+      </div>
+      <p class="hint">Начните вводить адрес или кликните по карте — точка поставится в активное поле.</p>
+    </div>
+
+    <div class="block">
+      <h2 class="block-title">Условия</h2>
+      <div class="grid2">
+        <label class="check box"><input type="checkbox" id="urgent"> <span>Срочно <em id="urgentLbl"></em></span></label>
+        <label class="check box"><input type="checkbox" id="night"> <span>Ночь / выходной <em id="nightLbl"></em></span></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Доп. услуги, <i class="cur"></i></span><input type="number" id="extra" min="0" step="50" value="0" inputmode="decimal"></label>
+        <label class="field"><span>Ожидание / работа, мин</span><input type="number" id="waitMin" min="0" step="5" value="0" inputmode="numeric"></label>
+      </div>
+    </div>
+
+    <details class="block client">
+      <summary class="block-title">Клиент и комментарий</summary>
+      <div class="grid2">
+        <label class="field"><span>Имя</span><input type="text" id="clientName" autocomplete="off"></label>
+        <label class="field"><span>Телефон</span><input type="tel" id="clientPhone" autocomplete="off"></label>
+      </div>
+      <label class="field"><span>Комментарий</span><textarea id="comment" rows="2"></textarea></label>
+    </details>
+
+    <button class="btn primary big" id="btnCalc" type="button">Построить маршрут и рассчитать</button>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+
+    <div class="result" id="result" hidden>
+      <div class="result-head">
+        <div>
+          <div class="result-label">Итого по заявке</div>
+          <div class="result-total mono" id="total">—</div>
+        </div>
+        <div class="result-meta">
+          <div><span class="mono" id="rDist">—</span><small>км</small></div>
+          <div><span class="mono" id="rTime">—</span><small>в пути</small></div>
+        </div>
+      </div>
+      <table class="breakdown" id="breakdown"></table>
+      <div class="row-actions">
+        <button class="btn primary" id="btnSave" type="button">Сохранить заявку</button>
+        <button class="btn ghost" id="btnCopy" type="button">Копировать текст</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="map-wrap" aria-label="Карта">
+    <div id="map"></div>
+    <button class="btn map-btn" id="btnLocate" type="button" title="Моё местоположение">◎ Я здесь</button>
+  </section>
+</main>
+
+<!-- Тарифы -->
+<div class="modal" id="settingsModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="modal-head">
+      <h2 id="setTitle">Тариф: <span id="setModeName"></span></h2>
+      <button class="icon-btn" data-close aria-label="Закрыть">✕</button>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Базовая стоимость выезда</span><input type="number" id="sBase" min="0" step="50"></label>
+      <label class="field"><span>Цена за 1 км</span><input type="number" id="sPerKm" min="0" step="1"></label>
+      <label class="field"><span>Км включено в базу</span><input type="number" id="sFreeKm" min="0" step="1"></label>
+      <label class="field"><span>Минимальная сумма заказа</span><input type="number" id="sMin" min="0" step="50"></label>
+      <label class="field"><span>Наценка «Срочно», %</span><input type="number" id="sUrgent" min="0" step="5"></label>
+      <label class="field"><span>Наценка «Ночь/выходной», %</span><input type="number" id="sNight" min="0" step="5"></label>
+      <label class="field"><span>Цена минуты ожидания/работы</span><input type="number" id="sPerMin" min="0" step="1"></label>
+      <label class="field"><span>Округление до</span>
+        <select id="sRound"><option value="1">1</option><option value="10">10</option><option value="50">50</option><option value="100">100</option></select>
+      </label>
+    </div>
+    <h3 class="sub">Общие настройки</h3>
+    <div class="grid2">
+      <label class="field"><span>Валюта</span>
+        <select id="sCur"><option value="₽">₽ рубль</option><option value="€">€ евро</option><option value="$">$ доллар</option><option value="₸">₸ тенге</option><option value="Br">Br бел. рубль</option></select>
+      </label>
+      <label class="field"><span>Адрес базы (старт по умолчанию)</span><input type="text" id="sBaseAddr" placeholder="Задаётся кнопкой ниже"></label>
+    </div>
+    <div class="row-actions">
+      <button class="btn ghost small" id="btnSetBase" type="button">Сделать текущую точку «Откуда» базой</button>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="btnReset" type="button">Сбросить тариф</button>
+      <button class="btn primary" id="btnSaveSettings" type="button">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- История -->
+<div class="modal" id="historyModal" hidden>
+  <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="histTitle">
+    <div class="modal-head">
+      <h2 id="histTitle">История заявок</h2>
+      <button class="icon-btn" data-close aria-label="Закрыть">✕</button>
+    </div>
+    <div id="historyList" class="history"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="btnExport" type="button">Скачать CSV</button>
+      <button class="btn ghost danger" id="btnClearHist" type="button">Очистить</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
