@@ -276,7 +276,7 @@
 
   function fmtDuration(min) {
     const h = Math.floor(min / 60), m = Math.round(min % 60);
-    return h ? `${h} ч ${m} м` : `${m} мин`;
+    return h ? `${h} ч ${m} мин` : `${m} мин`;
   }
 
   function renderResult() {
