@@ -31,24 +31,43 @@
   const money = (n) => `${fmt(n)} ${settings.currency}`;
 
   // ---------- карта ----------
+  const MAP_STYLES = {
+    light: 'https://tiles.openfreemap.org/styles/liberty',
+    dark: 'https://tiles.openfreemap.org/styles/dark'
+  };
+  const theme = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  let routeData = { type: 'FeatureCollection', features: [] };
+
   const map = new maplibregl.Map({
     container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/liberty',
+    style: MAP_STYLES[theme()],
     center: [37.6173, 55.7558],
     zoom: 9,
     attributionControl: { compact: true }
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
-  map.on('load', () => {
-    map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  function addRouteLayers() {
+    if (map.getSource('route')) return;
+    map.addSource('route', { type: 'geojson', data: routeData });
     map.addLayer({ id: 'route-casing', type: 'line', source: 'route',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': '#7a2c03', 'line-width': 8, 'line-opacity': .35 } });
+      paint: { 'line-color': theme() === 'dark' ? '#000' : '#7a2c03', 'line-width': 8, 'line-opacity': .35 } });
     map.addLayer({ id: 'route-line', type: 'line', source: 'route',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': '#e5590f', 'line-width': 5 } });
-  });
+      paint: { 'line-color': theme() === 'dark' ? '#ff7a33' : '#e5590f', 'line-width': 5 } });
+  }
+  map.on('style.load', addRouteLayers);
+  function setRouteData(d) { routeData = d; const src = map.getSource('route'); if (src) src.setData(d); }
+
+  function applyTheme(t) {
+    document.documentElement.dataset.theme = t;
+    const dark = t === 'dark';
+    const b = $('#btnTheme');
+    b.setAttribute('aria-label', dark ? 'Включить светлую тему' : 'Включить тёмную тему');
+    b.title = dark ? 'Светлая тема' : 'Тёмная тема';
+    map.setStyle(MAP_STYLES[t], { diff: false });
+  }
 
   map.on('click', async (e) => {
     const { lng, lat } = e.lngLat;
@@ -188,8 +207,7 @@
   }
 
   function clearRoute() {
-    const src = map.getSource('route');
-    if (src) src.setData({ type: 'FeatureCollection', features: [] });
+    setRouteData({ type: 'FeatureCollection', features: [] });
     $('#result').hidden = true; lastCalc = null;
   }
 
@@ -264,7 +282,7 @@
       const route = await fetchRoute(coords);
       const km = Math.max(1, Math.round(route.distance / 1000)), min = route.duration / 60;
       lastRoute = { km, min };
-      map.getSource('route').setData({ type: 'Feature', geometry: route.geometry, properties: {} });
+      setRouteData({ type: 'Feature', geometry: route.geometry, properties: {} });
       const b = new maplibregl.LngLatBounds();
       route.geometry.coordinates.forEach(c => b.extend(c));
       const wide = window.innerWidth > 900;
@@ -415,6 +433,7 @@
   };
 
   // ---------- старт ----------
+  $('#btnTheme').onclick = () => applyTheme(theme() === 'dark' ? 'light' : 'dark');
   applyModeLabels();
   renderPoints();
   renderMarkers();
