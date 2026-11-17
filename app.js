@@ -10,14 +10,12 @@
   };
 
   const DEFAULT_TARIFFS = {
-    delivery: { base: 500, perKm: 30, freeKm: 5, min: 500, urgent: 50, night: 30, perMin: 5, round: 10 },
-    master:   { base: 1000, perKm: 35, freeKm: 10, min: 1000, urgent: 50, night: 50, perMin: 15, round: 50 }
+    delivery: { supply: 500, perKm: 30 },
+    master:   { supply: 1000, perKm: 35 }
   };
   const MODE_NAMES = { delivery: 'Доставка', master: 'Выезд мастера' };
 
-  let settings = store.get('vk_settings', null) || {
-    tariffs: structuredClone(DEFAULT_TARIFFS), currency: '₽', base: null
-  };
+  let settings = store.get('vk_settings', null) || { tariffs: structuredClone(DEFAULT_TARIFFS), currency: '₽' };
   let mode = store.get('vk_mode', 'delivery');
   let history = store.get('vk_history', []);
 
@@ -215,25 +213,38 @@
   }
 
   // ---------- расчёт ----------
-  function computeCost(km, tariff, opts) {
-    const rows = [];
-    rows.push(['Базовая стоимость выезда', `включено ${tariff.freeKm} км`, tariff.base]);
-    const billKm = Math.max(0, km - tariff.freeKm);
-    const kmCost = billKm * tariff.perKm;
-    rows.push(['Пробег сверх базы', `${billKm.toFixed(1).replace('.', ',')} км × ${fmt(tariff.perKm)}`, kmCost]);
-    if (opts.waitMin > 0) rows.push(['Ожидание / работа', `${opts.waitMin} мин × ${fmt(tariff.perMin)}`, opts.waitMin * tariff.perMin]);
-    let subtotal = rows.reduce((s, r) => s + r[2], 0);
-    const pct = (opts.urgent ? tariff.urgent : 0) + (opts.night ? tariff.night : 0);
-    if (opts.urgent) rows.push(['Наценка «Срочно»', `+${tariff.urgent}%`, subtotal * tariff.urgent / 100]);
-    if (opts.night) rows.push(['Наценка «Ночь / выходной»', `+${tariff.night}%`, subtotal * tariff.night / 100]);
-    subtotal = subtotal * (1 + pct / 100);
-    if (opts.extra > 0) { rows.push(['Доп. услуги', '', opts.extra]); subtotal += opts.extra; }
-    let total = subtotal;
-    if (total < tariff.min) { rows.push(['Доплата до минимального заказа', `мин. ${fmt(tariff.min)}`, tariff.min - total]); total = tariff.min; }
-    const step = +tariff.round || 1;
-    const rounded = Math.ceil(total / step) * step;
-    if (rounded - total >= 0.5) rows.push(['Округление', `до ${step}`, rounded - total]);
-    return { rows, total: rounded };
+  function computeCost(km, tariff, custom) {
+    const kmCost = km * tariff.perKm;
+    const calc = tariff.supply + kmCost;
+    const rows = [
+      ['Стоимость подачи', '', tariff.supply],
+      ['Выезд по километражу', `${km.toFixed(1).replace('.', ',')} км × ${fmt(tariff.perKm)}`, kmCost]
+    ];
+    if (custom != null) {
+      rows.push(['Расчётная стоимость', '', calc]);
+      rows.push(['Своя стоимость', 'задана вручную', custom]);
+      return { rows, total: custom, calcTotal: calc, custom: true };
+    }
+    return { rows, total: Math.round(calc), calcTotal: calc, custom: false };
+  }
+
+  function readTariff() {
+    const t = settings.tariffs[mode];
+    t.supply = Math.max(0, +$('#tSupply').value || 0);
+    t.perKm = Math.max(0, +$('#tPerKm').value || 0);
+    return t;
+  }
+  function customValue() {
+    if (!$('#customOn').checked) return null;
+    const v = $('#customPrice').value.trim();
+    return v === '' ? null : Math.max(0, +v || 0);
+  }
+  // пересчёт без запроса маршрута
+  function recompute() {
+    if (!lastRoute || !lastCalc) return;
+    const res = computeCost(lastRoute.km, readTariff(), customValue());
+    lastCalc = { ...lastCalc, ...res, mode };
+    renderResult(false);
   }
 
   async function calculate() {
@@ -259,13 +270,8 @@
       const wide = window.innerWidth > 900;
       map.fitBounds(b, { padding: wide ? 70 : 36, maxZoom: 15, duration: 700 });
 
-      const tariff = settings.tariffs[mode];
-      const opts = {
-        urgent: $('#urgent').checked, night: $('#night').checked,
-        extra: Math.max(0, +$('#extra').value || 0), waitMin: Math.max(0, +$('#waitMin').value || 0)
-      };
-      const res = computeCost(km, tariff, opts);
-      lastCalc = { ...res, km, min, round, opts, mode, points: filled.map(p => p.label), date: new Date().toISOString() };
+      const res = computeCost(km, readTariff(), customValue());
+      lastCalc = { ...res, km, min, round, mode, points: filled.map(p => p.label), date: new Date().toISOString() };
       renderResult();
       status.textContent = round ? 'Маршрут с возвратом на базу.' : '';
     } catch (e) {
@@ -279,7 +285,7 @@
     return h ? `${h} ч ${m} мин` : `${m} мин`;
   }
 
-  function renderResult() {
+  function renderResult(scroll = true) {
     const c = lastCalc;
     $('#result').hidden = false;
     $('#total').textContent = money(c.total);
@@ -287,8 +293,8 @@
     $('#rTime').textContent = fmtDuration(c.min);
     $('#breakdown').innerHTML = c.rows.map(r =>
       `<tr><td>${r[0]}${r[1] ? ` <small>${r[1]}</small>` : ''}</td><td>${money(r[2])}</td></tr>`).join('') +
-      `<tr class="sum"><td>Итого</td><td>${money(c.total)}</td></tr>`;
-    if (window.innerWidth <= 900) $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      `<tr class="sum"><td>Итого${c.custom ? ' (своя)' : ''}</td><td>${money(c.total)}</td></tr>`;
+    if (scroll && window.innerWidth <= 900) $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function orderText(c, num) {
@@ -347,33 +353,13 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
 
-  // ---------- тарифы ----------
-  const S_FIELDS = { sBase: 'base', sPerKm: 'perKm', sFreeKm: 'freeKm', sMin: 'min', sUrgent: 'urgent', sNight: 'night', sPerMin: 'perMin', sRound: 'round' };
-  function fillSettings() {
-    const t = settings.tariffs[mode];
-    $('#setModeName').textContent = MODE_NAMES[mode];
-    for (const [id, k] of Object.entries(S_FIELDS)) $('#' + id).value = t[k];
-    $('#sCur').value = settings.currency;
-    $('#sBaseAddr').value = settings.base ? settings.base.label : '';
-  }
-  function saveSettings() {
-    const t = settings.tariffs[mode];
-    for (const [id, k] of Object.entries(S_FIELDS)) t[k] = Math.max(0, +$('#' + id).value || 0);
-    if (!t.round) t.round = 1;
-    settings.currency = $('#sCur').value;
-    const addr = $('#sBaseAddr').value.trim();
-    if (!addr) settings.base = null; else if (settings.base) settings.base.label = addr;
-    store.set('vk_settings', settings);
-    applyModeLabels();
-    closeModal('#settingsModal');
-    toast('Тариф сохранён');
-    if (lastCalc) calculate();
-  }
-
+  // ---------- тариф ----------
   function applyModeLabels() {
     const t = settings.tariffs[mode];
-    $('#urgentLbl').textContent = `+${t.urgent}%`;
-    $('#nightLbl').textContent = `+${t.night}%`;
+    $('#tariffName').textContent = MODE_NAMES[mode].toLowerCase();
+    $('#tSupply').value = t.supply;
+    $('#tPerKm').value = t.perKm;
+    $('#tCur').value = settings.currency;
     document.querySelectorAll('.cur').forEach(el => el.textContent = settings.currency);
     document.querySelectorAll('.tab').forEach(b => { const on = b.dataset.mode === mode; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); });
     $('#btnCalc').textContent = mode === 'master' ? 'Построить маршрут и рассчитать выезд' : 'Построить маршрут и рассчитать доставку';
@@ -397,28 +383,27 @@
   // ---------- события ----------
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
     mode = b.dataset.mode; store.set('vk_mode', mode); applyModeLabels();
-    if (lastRoute && lastCalc) calculate();
+    recompute();
   }));
   $('#btnAddStop').onclick = () => { points.splice(points.length - 1, 0, null); activeIdx = points.length - 2; renderPoints(); renderMarkers(); $('#points').querySelectorAll('input')[activeIdx].focus(); };
   $('#btnCalc').onclick = calculate;
   $('#btnSave').onclick = saveOrder;
   $('#btnCopy').onclick = () => lastCalc && copy(orderText(lastCalc));
-  $('#btnSettings').onclick = () => { fillSettings(); openModal('#settingsModal'); };
   $('#btnHistory').onclick = () => { renderHistory(); openModal('#historyModal'); };
-  $('#btnSaveSettings').onclick = saveSettings;
-  $('#btnReset').onclick = () => { settings.tariffs[mode] = structuredClone(DEFAULT_TARIFFS[mode]); fillSettings(); };
-  $('#btnSetBase').onclick = () => {
-    if (!points[0]) { toast('Сначала укажите точку «Откуда»'); return; }
-    settings.base = { ...points[0] }; $('#sBaseAddr').value = settings.base.label; toast('База задана — не забудьте сохранить');
-  };
   $('#btnExport').onclick = exportCsv;
   $('#btnClearHist').onclick = () => { history = []; store.set('vk_history', history); renderHistory(); };
   document.querySelectorAll('.modal').forEach(m => {
     m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) m.hidden = true; });
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(m => m.hidden = true); });
-  ['#urgent', '#night', '#roundTrip'].forEach(s => $(s).addEventListener('change', () => { if (lastCalc) calculate(); }));
-  ['#extra', '#waitMin'].forEach(s => $(s).addEventListener('change', () => { if (lastCalc) calculate(); }));
+  $('#roundTrip').addEventListener('change', () => { if (lastCalc) calculate(); });
+  ['#tSupply', '#tPerKm', '#customPrice'].forEach(s => $(s).addEventListener('input', recompute));
+  $('#customOn').addEventListener('change', () => {
+    const on = $('#customOn').checked; $('#customPrice').disabled = !on;
+    if (on) { if (!$('#customPrice').value && lastCalc) $('#customPrice').value = Math.round(lastCalc.calcTotal); $('#customPrice').focus(); }
+    recompute();
+  });
+  $('#tCur').addEventListener('change', () => { settings.currency = $('#tCur').value; applyModeLabels(); if (lastCalc) renderResult(false); });
   $('#btnLocate').onclick = () => {
     if (!navigator.geolocation) { toast('Геолокация недоступна'); return; }
     navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -430,7 +415,6 @@
   };
 
   // ---------- старт ----------
-  if (settings.base) { points[0] = { ...settings.base }; activeIdx = 1; map.setCenter([settings.base.lng, settings.base.lat]); map.setZoom(11); }
   applyModeLabels();
   renderPoints();
   renderMarkers();

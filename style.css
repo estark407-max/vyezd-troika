@@ -130,3 +130,4 @@ textarea{resize:vertical}
 .result-total{font-size:32px;white-space:nowrap}
 .result-meta{flex-shrink:0}
 .result-meta span{white-space:nowrap}
+.field input:disabled{opacity:.45;cursor:not-allowed}
