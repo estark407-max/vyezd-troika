@@ -218,7 +218,7 @@
     const calc = tariff.supply + kmCost;
     const rows = [
       ['Стоимость подачи', '', tariff.supply],
-      ['Выезд по километражу', `${km.toFixed(1).replace('.', ',')} км × ${fmt(tariff.perKm)}`, kmCost]
+      ['Выезд по километражу', `${km} км × ${fmt(tariff.perKm)}`, kmCost]
     ];
     if (custom != null) {
       rows.push(['Расчётная стоимость', '', calc]);
@@ -262,7 +262,7 @@
     btn.disabled = true; status.textContent = 'Строю маршрут…';
     try {
       const route = await fetchRoute(coords);
-      const km = route.distance / 1000, min = route.duration / 60;
+      const km = Math.max(1, Math.ceil(route.distance / 1000)), min = route.duration / 60;
       lastRoute = { km, min };
       map.getSource('route').setData({ type: 'Feature', geometry: route.geometry, properties: {} });
       const b = new maplibregl.LngLatBounds();
@@ -289,7 +289,7 @@
     const c = lastCalc;
     $('#result').hidden = false;
     $('#total').textContent = money(c.total);
-    $('#rDist').textContent = c.km.toFixed(1).replace('.', ',');
+    $('#rDist').textContent = String(c.km);
     $('#rTime').textContent = fmtDuration(c.min);
     $('#breakdown').innerHTML = c.rows.map(r =>
       `<tr><td>${r[0]}${r[1] ? ` <small>${r[1]}</small>` : ''}</td><td>${money(r[2])}</td></tr>`).join('') +
@@ -302,7 +302,7 @@
       `Заявка${num ? ' №' + num : ''} — ${MODE_NAMES[c.mode]}`,
       `Дата: ${new Date(c.date).toLocaleString('ru-RU')}`,
       `Маршрут: ${c.points.join(' → ')}${c.round ? ' → обратно' : ''}`,
-      `Расстояние: ${c.km.toFixed(1)} км, в пути ~${fmtDuration(c.min)}`,
+      `Расстояние: ${c.km} км, в пути ~${fmtDuration(c.min)}`,
     ];
     const name = $('#clientName').value.trim(), phone = $('#clientPhone').value.trim(), com = $('#comment').value.trim();
     if (c.client || name || phone) lines.push(`Клиент: ${(c.client ?? [name, phone].filter(Boolean).join(', '))}`);
@@ -329,7 +329,7 @@
       const el = document.createElement('div');
       el.className = 'h-item';
       el.innerHTML = `<div><b>№${h.num} · ${MODE_NAMES[h.mode]}</b>
-        <small>${new Date(h.date).toLocaleString('ru-RU')} · ${h.km.toFixed(1)} км${h.client ? ' · ' + escapeHtml(h.client) : ''}</small>
+        <small>${new Date(h.date).toLocaleString('ru-RU')} · ${Math.ceil(h.km)} км${h.client ? ' · ' + escapeHtml(h.client) : ''}</small>
         <small>${escapeHtml(h.points.join(' → '))}</small></div>
         <span class="h-sum">${fmt(h.total)} ${h.currency || settings.currency}</span>
         <div><button class="btn small ghost" data-copy="${i}" type="button">Копировать</button>
@@ -345,7 +345,7 @@
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const head = ['Номер', 'Дата', 'Тип', 'Маршрут', 'Км', 'Минут в пути', 'Клиент', 'Комментарий', 'Итого', 'Валюта'];
     const rows = history.map(h => [h.num, new Date(h.date).toLocaleString('ru-RU'), MODE_NAMES[h.mode], h.points.join(' → '),
-      h.km.toFixed(1).replace('.', ','), Math.round(h.min), h.client, h.comment, h.total, h.currency]);
+      Math.ceil(h.km), Math.round(h.min), h.client, h.comment, h.total, h.currency]);
     const csv = '\ufeff' + [head, ...rows].map(r => r.map(esc).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
