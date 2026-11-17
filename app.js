@@ -10,8 +10,8 @@ function startApp() {
   };
 
   const DEFAULT_TARIFFS = {
-    delivery: { supply: 500, perKm: 30 },
-    master:   { supply: 1000, perKm: 35 }
+    delivery: { supply: 5000, perKm: 50 },
+    master:   { supply: 5000, perKm: 50 }
   };
   const MODE_NAMES = { delivery: 'Доставка', master: 'Выезд мастера' };
 
@@ -195,7 +195,7 @@ function startApp() {
   async function fetchRoute(coords) {
     if (!yandexRouterDown) {
       try {
-        const r = await withTimeout(fetchRouteYandex(coords), 12000);
+        const r = await withTimeout(fetchRouteYandex(coords), 6000);
         return { ...r, source: 'yandex' };
       } catch (e) { yandexRouterDown = true; }
     }
@@ -294,22 +294,38 @@ function startApp() {
   }
 
   async function calculate() {
-    const filled = points.filter(Boolean);
     const status = $('#status');
     status.classList.remove('err');
     const mk = manualKm();
     if (mk) {
       lastRoute = { km: mk, min: null };
       const res = computeCost(mk, readTariff(), customValue());
-      lastCalc = { ...res, km: mk, min: null, round: false, manual: true, mode, points: filled.map(p => p.label), date: new Date().toISOString() };
+      lastCalc = { ...res, km: mk, min: null, round: false, manual: true, mode, points: points.filter(Boolean).map(p => p.label), date: new Date().toISOString() };
       renderResult();
       status.textContent = 'Расчёт по километражу, указанному вручную.';
       return;
     }
+    // адреса, введённые вручную без выбора подсказки, ищем сами
+    const inputs = document.querySelectorAll('#points .point input');
+    for (let i = 0; i < points.length; i++) {
+      const q = inputs[i] ? inputs[i].value.trim() : '';
+      if (!q || (points[i] && points[i].label === q)) continue;
+      status.textContent = 'Ищу адрес «' + q + '»…';
+      let found = [];
+      try { found = await searchAddress(q); } catch { found = []; }
+      if (!found.length) {
+        status.textContent = 'Адрес «' + q + '» не найден. Уточните его или выберите из подсказок.';
+        status.classList.add('err'); return;
+      }
+      const it = found[0];
+      points[i] = { label: it.main + (it.place ? ', ' + it.place.split(',')[0] : ''), lng: it.lng, lat: it.lat };
+    }
+    renderPoints(); renderMarkers();
     if (!points[0] || !points[points.length - 1]) {
       status.textContent = 'Укажите точки «Откуда» и «Куда».';
       status.classList.add('err'); return;
     }
+    const filled = points.filter(Boolean);
     const coords = [...filled];
     const round = $('#roundTrip').checked;
     if (round) coords.push(filled[0]);
