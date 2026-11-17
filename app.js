@@ -251,10 +251,24 @@ function startApp() {
     renderResult(false);
   }
 
+  function manualKm() {
+    const v = Math.round(+$('#manualKm').value || 0);
+    return v >= 1 ? v : null;
+  }
+
   async function calculate() {
     const filled = points.filter(Boolean);
     const status = $('#status');
     status.classList.remove('err');
+    const mk = manualKm();
+    if (mk) {
+      lastRoute = { km: mk, min: null };
+      const res = computeCost(mk, readTariff(), customValue());
+      lastCalc = { ...res, km: mk, min: null, round: false, manual: true, mode, points: filled.map(p => p.label), date: new Date().toISOString() };
+      renderResult();
+      status.textContent = 'Расчёт по километражу, указанному вручную.';
+      return;
+    }
     if (!points[0] || !points[points.length - 1]) {
       status.textContent = 'Укажите точки «Откуда» и «Куда».';
       status.classList.add('err'); return;
@@ -273,7 +287,7 @@ function startApp() {
       renderResult();
       status.textContent = round ? 'Маршрут с возвратом на базу.' : '';
     } catch (e) {
-      status.textContent = e.message || 'Не удалось построить маршрут';
+      status.textContent = (e.message || 'Не удалось построить маршрут') + '. Можно указать километраж вручную в блоке тарифа.';
       status.classList.add('err');
     } finally { btn.disabled = false; }
   }
@@ -288,7 +302,7 @@ function startApp() {
     $('#result').hidden = false;
     $('#total').textContent = money(c.total);
     $('#rDist').textContent = String(c.km);
-    $('#rTime').textContent = fmtDuration(c.min);
+    $('#rTime').textContent = c.min == null ? '—' : fmtDuration(c.min);
     $('#breakdown').innerHTML = c.rows.map(r =>
       `<tr><td>${r[0]}${r[1] ? ` <small>${r[1]}</small>` : ''}</td><td>${money(r[2])}</td></tr>`).join('') +
       `<tr class="sum"><td>Итого${c.custom ? ' (своя)' : ''}</td><td>${money(c.total)}</td></tr>`;
@@ -300,7 +314,7 @@ function startApp() {
       `Заявка${num ? ' №' + num : ''} — ${MODE_NAMES[c.mode]}`,
       `Дата: ${new Date(c.date).toLocaleString('ru-RU')}`,
       `Маршрут: ${c.points.join(' → ')}${c.round ? ' → обратно' : ''}`,
-      `Расстояние: ${c.km} км, в пути ~${fmtDuration(c.min)}`,
+      c.min == null ? `Расстояние: ${c.km} км (указано вручную)` : `Расстояние: ${c.km} км, в пути ~${fmtDuration(c.min)}`,
     ];
     const name = $('#clientName').value.trim(), phone = $('#clientPhone').value.trim(), com = $('#comment').value.trim();
     if (c.client || name || phone) lines.push(`Клиент: ${(c.client ?? [name, phone].filter(Boolean).join(', '))}`);
@@ -343,7 +357,7 @@ function startApp() {
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const head = ['Номер', 'Дата', 'Тип', 'Маршрут', 'Км', 'Минут в пути', 'Клиент', 'Комментарий', 'Итого', 'Валюта'];
     const rows = history.map(h => [h.num, new Date(h.date).toLocaleString('ru-RU'), MODE_NAMES[h.mode], h.points.join(' → '),
-      Math.round(h.km), Math.round(h.min), h.client, h.comment, h.total, h.currency]);
+      Math.round(h.km), h.min == null ? '' : Math.round(h.min), h.client, h.comment, h.total, h.currency]);
     const csv = '\ufeff' + [head, ...rows].map(r => r.map(esc).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -396,6 +410,7 @@ function startApp() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(m => m.hidden = true); });
   $('#roundTrip').addEventListener('change', () => { if (lastCalc) calculate(); });
   ['#tSupply', '#tPerKm', '#customPrice'].forEach(s => $(s).addEventListener('input', recompute));
+  $('#manualKm').addEventListener('input', () => { if (lastCalc && (lastCalc.manual || manualKm())) calculate(); });
   $('#customOn').addEventListener('change', () => {
     const on = $('#customOn').checked; $('#customPrice').disabled = !on;
     if (on) { if (!$('#customPrice').value && lastCalc) $('#customPrice').value = Math.round(lastCalc.calcTotal); $('#customPrice').focus(); }

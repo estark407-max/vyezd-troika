@@ -57,8 +57,9 @@
         <label class="field"><span>Валюта</span>
           <select id="tCur"><option value="₽">₽ рубль</option><option value="€">€ евро</option><option value="$">$ доллар</option><option value="₸">₸ тенге</option><option value="Br">Br бел. рубль</option></select>
         </label>
+        <label class="field"><span>Километраж вручную, км</span><input type="number" id="manualKm" min="1" step="1" placeholder="Если без маршрута" inputmode="numeric"></label>
       </div>
-      <p class="hint">Формула: подача + километры × цена за км.</p>
+      <p class="hint">Формула: подача + километры × цена за км. Если указать километраж вручную, маршрут не строится.</p>
     </div>
 
     <details class="block client">
