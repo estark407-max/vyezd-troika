@@ -189,8 +189,45 @@ function startApp() {
     $('#result').hidden = true; lastCalc = null;
   }
 
-  // ---------- маршрут (Яндекс) ----------
-  function fetchRoute(coords) {
+  // ---------- маршрут ----------
+  // Основной — маршрутизатор Яндекса; если он недоступен (ключ не активен, лимит) — OSRM по дорогам OpenStreetMap.
+  let yandexRouterDown = false;
+  async function fetchRoute(coords) {
+    if (!yandexRouterDown) {
+      try {
+        const r = await withTimeout(fetchRouteYandex(coords), 12000);
+        return { ...r, source: 'yandex' };
+      } catch (e) { yandexRouterDown = true; }
+    }
+    return { ...(await fetchRouteOsrm(coords)), source: 'osrm' };
+  }
+
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  }
+
+  async function fetchRouteOsrm(coords) {
+    const path = coords.map(c => c.lng.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
+    let j;
+    try {
+      const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + path + '?overview=full&geometries=geojson');
+      j = await r.json();
+    } catch { throw new Error('Нет связи с сервисом маршрутов'); }
+    if (j.code !== 'Ok' || !j.routes || !j.routes[0]) throw new Error('Между точками не найдено дороги');
+    const rt = j.routes[0];
+    if (multiRoute) map.geoObjects.remove(multiRoute);
+    const dark = theme() === 'dark';
+    const line = new ymaps.Polyline(rt.geometry.coordinates.map(([lng, lat]) => [lat, lng]), {}, {
+      strokeColor: dark ? '#ff7a33' : '#e5590f', strokeWidth: 6, strokeOpacity: 0.9
+    });
+    multiRoute = line;
+    map.geoObjects.add(line);
+    const b = line.geometry.getBounds();
+    if (b) map.setBounds(b, { checkZoomRange: true, zoomMargin: 40, duration: 300 });
+    return { distance: rt.distance, duration: rt.duration };
+  }
+
+  function fetchRouteYandex(coords) {
     return new Promise((resolve, reject) => {
       if (multiRoute) map.geoObjects.remove(multiRoute);
       const dark = theme() === 'dark';
